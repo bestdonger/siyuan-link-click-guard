@@ -8,6 +8,7 @@ module.exports = class LinkClickGuard extends Plugin {
   async onload() {
     this.options = {...DEFAULTS};
     this.disposed = false;
+    this.navigationClicks = new WeakSet();
     try {
       const saved = await this.loadData(STORAGE);
       for (const key of Object.keys(DEFAULTS)) {
@@ -23,7 +24,7 @@ module.exports = class LinkClickGuard extends Plugin {
     this.setting = new Setting({});
     for (const [key, title, description] of [
       ["externalLinks", "网页链接防误跳转", "包括纯网址和带标题的网页链接。单击定位光标，⌘/Ctrl＋点击打开。"],
-      ["blockReferences", "块引用与内部链接防误跳转", "单击不跳转；⌘/Ctrl、Alt、Shift＋点击保留思源原有操作。"]
+      ["blockReferences", "块引用与内部链接防误跳转", "单击不跳转；⌘/Ctrl＋点击打开并切换到目标文档，Alt、Shift＋点击保留原有操作。"]
     ]) {
       this.setting.addItem({
         title, description,
@@ -52,7 +53,7 @@ module.exports = class LinkClickGuard extends Plugin {
   }
 
   guardClick(event) {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    if (this.navigationClicks.has(event) || event.button !== 0 || event.altKey || event.shiftKey) return;
     const target = event.target;
     if (!target || typeof target.closest !== "function") return;
     const editor = target.closest(".protyle-wysiwyg");
@@ -65,6 +66,25 @@ module.exports = class LinkClickGuard extends Plugin {
     const internal = types.includes("block-ref") || href.startsWith("siyuan://blocks/");
     const external = /^https?:\/\//i.test(href);
     if (!(internal ? this.options.blockReferences : external && this.options.externalLinks)) return;
+
+    if (event.metaKey || event.ctrlKey) {
+      if (!internal) return;
+      // 思源原生 Cmd/Ctrl 点击内部引用会 keepCursor=true，保留在原页。
+      // 通过原生普通点击路径完成折叠定位、URI 参数处理和前台切换。
+      const view = link.ownerDocument.defaultView;
+      const selection = view.getSelection();
+      if (selection?.rangeCount && !selection.isCollapsed) selection.collapseToEnd();
+      const click = new view.MouseEvent("click", {
+        bubbles: true, cancelable: true, view, button: 0,
+        clientX: event.clientX, clientY: event.clientY,
+        screenX: event.screenX, screenY: event.screenY, detail: event.detail
+      });
+      this.navigationClicks.add(click);
+      event.preventDefault();
+      event.stopPropagation();
+      target.dispatchEvent(click);
+      return;
+    }
 
     // 鼠标按下时已由浏览器定位光标。只阻止 click 传给思源的跳转处理器。
     // 不触碰 mousedown，也不取消默认行为，以保留光标定位、拖选和文字编辑。

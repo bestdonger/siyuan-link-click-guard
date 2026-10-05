@@ -26,8 +26,12 @@ async function setup(saved = {}) {
   const plugin = new module.exports();
   await plugin.onload();
   let navigation = 0;
-  dom.window.document.querySelector(".protyle-wysiwyg").addEventListener("click", () => navigation++);
-  return {dom, plugin, click(id, extra = {}) {
+  const nativeClicks = [];
+  dom.window.document.querySelector(".protyle-wysiwyg").addEventListener("click", event => {
+    navigation++;
+    nativeClicks.push({metaKey: event.metaKey, ctrlKey: event.ctrlKey, target: event.target});
+  });
+  return {dom, plugin, nativeClicks, click(id, extra = {}) {
     const before = navigation;
     const event = new dom.window.MouseEvent("click", {bubbles: true, cancelable: true, button: 0, ...extra});
     dom.window.document.querySelector(id).dispatchEvent(event);
@@ -43,11 +47,46 @@ test("单击纯网址、标题内嵌元素、块引用及内链阻止跳转，�
   s.dom.window.close();
 });
 
-test("组合键、中键和右键保留原有事件", async () => {
+test("网页组合键、Alt/Shift、中键和右键保留原有事件", async () => {
   const s = await setup();
   for (const extra of [{metaKey: true}, {ctrlKey: true}, {altKey: true}, {shiftKey: true}, {button: 1}, {button: 2}]) {
     for (const id of ["#url", "#ref"]) assert.equal(s.click(id, extra).opened, true);
   }
+  s.dom.window.close();
+});
+
+test("Cmd/Ctrl 点击内部引用使用前台打开路径，每次只导航一次", async () => {
+  const s = await setup();
+  s.dom.window.document.querySelector("#ref").setAttribute("data-id", "20261005000000-abcdefg");
+  for (const extra of [{metaKey: true}, {ctrlKey: true}]) {
+    for (const id of ["#ref", "#internal"]) {
+      const before = s.nativeClicks.length;
+      assert.deepEqual(s.click(id, extra), {opened: true, defaultPrevented: true});
+      assert.equal(s.nativeClicks.length, before + 1);
+      assert.equal(s.nativeClicks.at(-1).metaKey, false);
+      assert.equal(s.nativeClicks.at(-1).ctrlKey, false);
+      assert.equal(s.nativeClicks.at(-1).target, s.dom.window.document.querySelector(id));
+    }
+  }
+  // 不移除 URI 参数，仍由思源原生处理。
+  const link = s.dom.window.document.querySelector("#internal");
+  link.setAttribute("data-href", "siyuan://blocks/20261005000000-abcdefg?av-item=test");
+  s.click("#internal", {metaKey: true});
+  assert.equal(s.nativeClicks.at(-1).target.getAttribute("data-href"), link.getAttribute("data-href"));
+  s.dom.window.close();
+});
+
+test("内部跳转清除文字选区；禁用设置及附加修饰键时保持原生行为", async () => {
+  const s = await setup();
+  const selection = s.dom.window.getSelection();
+  selection.selectAllChildren(s.dom.window.document.querySelector("#text"));
+  s.click("#ref", {metaKey: true});
+  assert.equal(selection.isCollapsed, true);
+  s.click("#ref", {metaKey: true, altKey: true});
+  assert.equal(s.nativeClicks.at(-1).metaKey, true);
+  s.plugin.options.blockReferences = false;
+  assert.equal(s.click("#ref", {metaKey: true}).defaultPrevented, false);
+  assert.equal(s.nativeClicks.at(-1).metaKey, true);
   s.dom.window.close();
 });
 

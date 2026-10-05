@@ -2,7 +2,7 @@
   "name": "siyuan-link-click-guard",
   "author": "bestdonger",
   "url": "https://github.com/bestdonger/siyuan-link-click-guard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "3.8.6",
   "backends": ["windows", "linux", "darwin", "docker"],
   "frontends": ["desktop", "desktop-window", "browser-desktop"],
